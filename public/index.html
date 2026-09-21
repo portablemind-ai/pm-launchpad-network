@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Launchpad Network</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/app.css">
+  <script src="/config.js"></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar" id="topbar" hidden>
+    <div class="brand">
+      <img id="brand-logo" alt="" hidden>
+      <span class="brand-mark" id="brand-mark" aria-hidden="true">◆</span>
+      <span id="brand-name">Launchpad Network</span>
+      <span class="role-chip" id="role-chip"></span>
+    </div>
+    <nav id="nav" aria-label="Sections"></nav>
+    <div class="who">
+      <span id="who-name"></span>
+      <button class="ghost" id="sso-btn" hidden>Open PortableMind ↗</button>
+      <button class="ghost" id="logout-btn">Sign out</button>
+    </div>
+  </header>
+  <div id="banner" class="banner" hidden></div>
+  <main id="main" aria-live="polite"></main>
+  <div id="modal-root"></div>
+  <div id="toasts" role="status" aria-live="polite"></div>
+  <footer class="powered" id="powered"></footer>
+</body>
+</html>

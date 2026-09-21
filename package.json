@@ -1,0 +1,12 @@
+{
+  "name": "pm-accelerator-network",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Launchpad Network — a reference app for PortableMind Enterprise workspaces and sub-workspaces: an accelerator network (Enterprise parent) running one sub-workspace per accelerator, with startups as teams. Zero dependencies.",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.js",
+    "test": "node --test test/unit/*.test.js",
+    "e2e": "node --env-file-if-exists=.env test/e2e/walkthrough.mjs"
+  },
+  "engines": { "node": ">=20.12" }
+}

@@ -1,0 +1,203 @@
+{
+  "internal_identifier": "lp_founder",
+  "description": "Startup Founder (Launchpad Network)",
+  "export_version": "1.0",
+  "external": true,
+  "capabilities": [
+    {
+      "action": "view",
+      "resource": "Projects",
+      "scope": {
+        "where": {
+          "owner_party_id": {
+            "in": "current_party_and_team_ids"
+          }
+        }
+      },
+      "internal_identifier": "lp_view_projects_own_team"
+    },
+    {
+      "action": "create",
+      "resource": "Projects",
+      "scope": null,
+      "internal_identifier": "lp_create_projects"
+    },
+    {
+      "action": "update",
+      "resource": "Projects",
+      "scope": {
+        "where": {
+          "owner_party_id": {
+            "in": "current_party_and_team_ids"
+          }
+        }
+      },
+      "internal_identifier": "lp_update_projects_own_team"
+    },
+    {
+      "action": "view",
+      "resource": "Tasks",
+      "scope": {
+        "where": {
+          "owner_party_id": {
+            "in": "current_party_and_team_ids"
+          }
+        }
+      },
+      "internal_identifier": "lp_view_tasks_own_team"
+    },
+    {
+      "action": "create",
+      "resource": "Tasks",
+      "scope": null,
+      "internal_identifier": "lp_create_tasks"
+    },
+    {
+      "action": "update",
+      "resource": "Tasks",
+      "scope": {
+        "where": {
+          "owner_party_id": {
+            "in": "current_party_and_team_ids"
+          }
+        }
+      },
+      "internal_identifier": "lp_update_tasks_own_team"
+    },
+    {
+      "action": "view",
+      "resource": "LlmFiles",
+      "scope": {
+        "where": {
+          "owner_party_id": {
+            "in": "current_party_and_team_ids"
+          }
+        }
+      },
+      "internal_identifier": "lp_view_llm_files_own_team"
+    },
+    {
+      "action": "create",
+      "resource": "LlmFiles",
+      "scope": null,
+      "internal_identifier": "lp_create_llm_files"
+    },
+    {
+      "action": "view",
+      "resource": "LlmConversations",
+      "scope": {
+        "joins": [
+          "llm_conversation_members"
+        ],
+        "where": {
+          "llm_conversation_members.party_id": "current_party_id"
+        }
+      },
+      "internal_identifier": "lp_view_llm_conversations_member"
+    },
+    {
+      "action": "create",
+      "resource": "LlmConversations",
+      "scope": null,
+      "internal_identifier": "lp_create_llm_conversations"
+    },
+    {
+      "action": "chat",
+      "resource": "LlmConversations",
+      "scope": {
+        "joins": [
+          "llm_conversation_members"
+        ],
+        "where": {
+          "llm_conversation_members.party_id": "current_party_id"
+        }
+      },
+      "internal_identifier": "lp_chat_llm_conversations_member"
+    },
+    {
+      "action": "link_entity",
+      "resource": "LlmConversations",
+      "scope": {
+        "joins": [
+          "llm_conversation_members"
+        ],
+        "where": {
+          "llm_conversation_members.party_id": "current_party_id"
+        }
+      },
+      "internal_identifier": "lp_link_entity_llm_conversations_member"
+    },
+    {
+      "action": "view",
+      "resource": "LlmMessages",
+      "scope": {
+        "joins": [
+          "llm_conversation.llm_conversation_members"
+        ],
+        "where": {
+          "llm_conversation_members.party_id": "current_party_id"
+        }
+      },
+      "internal_identifier": "lp_view_llm_messages_member"
+    },
+    {
+      "action": "create",
+      "resource": "LlmMessages",
+      "scope": null,
+      "internal_identifier": "lp_create_llm_messages"
+    },
+    {
+      "action": "view",
+      "resource": "LlmConversationMembers",
+      "scope": null,
+      "internal_identifier": "lp_view_llm_conversation_members"
+    },
+    {
+      "action": "create",
+      "resource": "LlmConversationMembers",
+      "scope": null,
+      "internal_identifier": "lp_create_llm_conversation_members"
+    },
+    {
+      "action": "create",
+      "resource": "OrchestrationExecutions",
+      "scope": null,
+      "internal_identifier": "lp_create_orchestration_executions"
+    },
+    {
+      "action": "view",
+      "resource": "OrchestrationExecutions",
+      "scope": {
+        "where": {
+          "owner_party_id": {
+            "in": "current_party_and_team_ids"
+          }
+        }
+      },
+      "internal_identifier": "lp_view_orchestration_executions_own_team"
+    },
+    {
+      "action": "approve_stage",
+      "resource": "OrchestrationExecutions",
+      "scope": null,
+      "internal_identifier": "lp_approve_stage_orchestration_executions"
+    },
+    {
+      "action": "reject_stage",
+      "resource": "OrchestrationExecutions",
+      "scope": null,
+      "internal_identifier": "lp_reject_stage_orchestration_executions"
+    },
+    {
+      "action": "view",
+      "resource": "OrchestrationTemplates",
+      "scope": {
+        "where": {
+          "published": true,
+          "private": false
+        }
+      },
+      "internal_identifier": "lp_view_orchestration_templates_published"
+    }
+  ]
+}
