@@ -164,6 +164,7 @@ try {
   if (needsConsent) check('install without consent is refused (code_not_accepted)', r.status === 422 && r.body.code === 'code_not_accepted', r.body);
   r = await admin.post(`/api/v1/agent_template_catalog/${templateId}/install`, { name: agentName, accept_code: needsConsent || undefined, expected_version_id: v1.id });
   check('admin installs the template, consent bound to the reviewed version', r.status === 201 && r.body.llm_agent, r.body);
+  const installedAgentId = r.body.llm_agent && r.body.llm_agent.id;
   r = await admin.post(`/api/v1/agent_template_catalog/${templateId}/install`, { name: agentName, accept_code: needsConsent || undefined, expected_version_id: v1.id });
   check('a second install with the same name is refused (name_taken)', r.status === 422 && r.body.code === 'name_taken', r.body);
 
@@ -259,20 +260,51 @@ try {
   r = await f1.get('/api/v1/projects?limit=-1&tenant_id=1');
   check('a top-level tenant_id is refused by the pipe', r.status === 400);
 
+  // Founders never see the platform behind this app: no sign-on for them, only for accelerator staff.
   r = await f1.post('/lp/sso/go', { dest: '/app/welcome' });
-  check('sign-on URL is issued for the verified founder', ok(r) && r.body.url.startsWith(`${config.pmAppUrl}/sso?`), r.body);
+  check('a founder is refused sign-on into the platform app', r.status === 403, r.body);
+  r = await f1.get('/lp/founders/me');
+  check('…and is never told it is available', ok(r) && r.body.sso_available === false && !r.body.app_url, r.body);
+  r = await admin.post('/lp/sso/go', { dest: '/app/welcome' });
+  check('sign-on URL is issued for the verified accelerator admin', ok(r) && r.body.url.startsWith(`${config.pmAppUrl}/sso?`), r.body);
   if (ok(r)) {
     const assertion = new URL(r.body.url).searchParams.get('assertion');
     const [h, p, sig] = assertion.split('.');
     const expected = crypto.createHmac('sha256', deps.secrets.get(acc.identifier, 'sso_key')).update(`${h}.${p}`).digest('base64url');
     const payload = JSON.parse(Buffer.from(p, 'base64url'));
-    check('…signed with THAT accelerator’s key, for that founder, ≤120 s', sig === expected && payload.sub === fA.email && payload.tenant_enterprise_identifier === acc.identifier && payload.exp - payload.iat <= 120, payload);
+    check('…signed with THAT accelerator’s key, for that admin, ≤120 s', sig === expected && payload.sub === ACC.email && payload.tenant_enterprise_identifier === acc.identifier && payload.exp - payload.iat <= 120, payload);
     // Exchange it for real — proves the platform accepts the assertion.
     const ex = await deps.pm.call('/sso/exchange', { method: 'POST', workspace: acc.identifier, body: { assertion } });
     check('the platform exchanges the assertion for a session', ex.ok && !!(ex.body.token || ex.body.jwt), { status: ex.status, body: ex.body.message || ex.body.error });
     const replay = await deps.pm.call('/sso/exchange', { method: 'POST', workspace: acc.identifier, body: { assertion } });
     check('…and refuses to exchange it twice', replay.status === 401, replay.status);
   }
+
+  // Assistants: the admin picks which agents founders may use; each founder talks to one privately.
+  r = await f1.get('/lp/founders/assistants');
+  check('no assistants until the admin makes one available', ok(r) && r.body.assistants.length === 0, r.body);
+  r = await f1.post('/lp/acc/founder-agents', { agent_id: installedAgentId, enabled: true });
+  check('a founder cannot choose assistants', r.status === 403);
+  r = await admin.get('/lp/acc/founder-agents');
+  check('the admin lists the workspace’s agents', ok(r) && r.body.agents.some((a) => a.id === installedAgentId), r.body);
+  r = await admin.post('/lp/acc/founder-agents', { agent_id: installedAgentId, enabled: true });
+  check('the admin makes the installed agent available to founders', ok(r), r.body);
+  r = await f1.get('/lp/founders/assistants');
+  check('the founder now sees it', ok(r) && r.body.assistants.some((a) => a.id === installedAgentId), r.body);
+  r = await f1.post(`/lp/founders/assistants/${installedAgentId}/open`);
+  const chatA = r.body.conversation_id;
+  check('the founder opens a private conversation with it', ok(r) && chatA && r.body.mention === `@${agentName}`, r.body);
+  r = await f1.post(`/lp/founders/assistants/${installedAgentId}/send`, { message: 'Hello' });
+  check('…and messages it (the server adds the @mention)', ok(r) && r.body.conversation_id === chatA, r.body);
+  r = await f2.post(`/lp/founders/assistants/${installedAgentId}/open`);
+  check('another founder gets their OWN conversation', ok(r) && r.body.conversation_id && r.body.conversation_id !== chatA, r.body);
+  r = await f2.get(`/api/v1/llm_conversations/${chatA}/llm_messages?limit=5`);
+  check('…and cannot read the first founder’s', !ok(r) || !(r.body.llm_messages || []).length, { status: r.status });
+  r = await f1.post('/lp/founders/assistants/999999999/open');
+  check('an assistant the admin did not enable is refused', r.status === 404);
+  r = await admin.get('/lp/founders/assistants');
+  check('assistant lanes are for founders only', r.status === 403);
+
   // Default configuration: founders must confirm their email before they can sign in.
   {
     const { server: server2 } = createApp(load(E2E_ENV));

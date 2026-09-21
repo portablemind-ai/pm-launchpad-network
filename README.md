@@ -27,7 +27,7 @@ npm start                # → http://localhost:8080   (Node 20.12+, no npm inst
 |---|---|---|
 | **Network operator**: admin of the Enterprise workspace | the network workspace | create accelerators (with or without activation email), change plans within the contract tier, take metrics snapshots, brand each accelerator and give it white-label sign-on, **transfer purchased tokens** (confirmed, idempotent), publish and version **agent templates** and choose who gets them, **share its own model** with monthly caps, see network-wide spend, delete an accelerator |
 | **Accelerator admin**: admin of one sub-workspace | their accelerator | one-time set-up (founder role, sign-up key, invite code), **review and install** templates with an explicit consent screen, upgrade installs (with a diff when a new version grants more), toggle auto-upgrade, detach, see startups, usage, limits and token balance |
-| **Founder**: member of a startup team | their accelerator | register their startup with the invite code (email confirmed first), see their team, **chat in their startup's private channel**, see their files and programme runs, start a run from a published template, invite colleagues with a signed join link, open the branded PortableMind app without a second login |
+| **Founder**: member of a startup team | their accelerator | register their startup with the invite code (email confirmed first), see their team, **chat in their startup's private channel**, **chat privately with the assistants (agents) their accelerator picked**, start a published programme (orchestration), read each step's output and accept it or ask for changes, see their files, invite colleagues with a signed join link. Founders never leave this app and never see the platform behind it |
 
 Screens:
 
@@ -36,7 +36,7 @@ Screens:
 - **Accelerator admin**: Set-up checklist, Agent catalog, Installed agents, Startups, Usage & plan. A
   banner shows coverage ("Billing is covered by Launchpad Network's agreement"), or the offboarding
   grace deadline.
-- **Founder**: My startup (team + private team chat), Files, Programme runs.
+- **Founder**: My startup (team + private team chat), Assistants, Programmes (start, follow, review each step), Files.
 - Sign-in pages theme themselves from the workspace's white-label branding (`/public/branding`) before
   anyone signs in. MFA sign-ins are handled. `402 billing_required` switches the whole app to a
   "locked for billing" screen instead of failing on whatever page was open.
@@ -62,7 +62,8 @@ Browser ──► this server (same origin) ──► PortableMind API
               /lp/auth/*       sign-in (incl. MFA), sign-out, who-am-I, sign-in branding
               /lp/op/*         network-console lanes: create, snapshot, transfer, sign-on key, delete
               /lp/acc/*        accelerator set-up lanes: founder role, provisioning key, invite code
-              /lp/founders/*   founder sign-up (provisioning key), roster, add teammate
+              /lp/founders/*   founder sign-up (provisioning key), roster, add teammate,
+                               assistants (agents) and programme runs
               /lp/sso/go       white-label sign-on, signed only for the identity the platform confirms
               /config.js       non-secret runtime config
 ```
@@ -118,8 +119,20 @@ Browser ──► this server (same origin) ──► PortableMind API
   platform now keeps such a grant away from private records).
 - **Founders get the app's sections, not its admin.** Sign-up grants `app_chat`, `app_files` and
   `app_projects` next to the scoped role: those unlock the navigation and carry no data of their own.
-  `app_admin` — Administration, User Management, AI Studio — is never granted. Founders use agents by
-  chatting with them.
+  `app_admin` — Administration, User Management, AI Studio — is never granted.
+- **Founders never see the platform.** Sign-on into the PortableMind app (`/lp/sso/go`) is for
+  accelerator staff only; founders get no button, no "powered by" and no platform wording.
+  Everything they do happens in this app:
+  - **Assistants.** The accelerator admin ticks which agents founders may use (Installed agents →
+    Assistants for founders). Each founder gets a private `ai-agent` conversation per agent, with
+    the agent as a member. The server prepends the agent's `@mention` to every message, because
+    mention-dispatch is what wakes the agent.
+  - **Programmes.** Published, non-private orchestration templates. A run is started with
+    `owner_party_id` = the startup team, so teammates share it. Each step's output is fetched
+    server-side through `/orchestration_executions/:id/artifacts/:aid/download`, which returns a
+    signed storage redirect the browser never sees. Founders accept a step
+    (`approve_stage`) or send it back with notes (`reject_stage`). The create body is top-level
+    (`orchestration_template_id`, `owner_party_id`, `context.feature_request`), not nested.
 - **Colleagues join with a signed link, not a handed-over password.** Before issuing one, the server
   checks the roster (read with the key) for the caller's **session** party id. The link is
   HMAC-signed, names one team and expires after 7 days. A colleague who uses it registers with their

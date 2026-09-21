@@ -137,8 +137,9 @@
     ],
     founder: [
       ['startup', 'My startup', viewFounderStartup],
+      ['assistants', 'Assistants', viewFounderAssistants],
+      ['runs', 'Programmes', viewFounderRuns],
       ['files', 'Files', viewFounderFiles],
-      ['runs', 'Programme runs', viewFounderRuns],
     ],
   };
 
@@ -159,8 +160,14 @@
     go('signin');
   }
 
+  // Views that poll (assistant chat, a running programme) register here; any navigation stops them.
+  let pollTimer = null;
+  function poll(fn, ms) { stopPoll(); pollTimer = setInterval(fn, ms); }
+  function stopPoll() { if (pollTimer) clearInterval(pollTimer); pollTimer = null; }
+
   function render() {
     const path = currentHash();
+    stopPoll();
     closeDrawer();
     if (path.startsWith('signup')) return viewSignup();
     if (!me) return viewSignin();
@@ -185,7 +192,8 @@
     $('#role-chip').textContent = roleLabel;
     $('#brand-name').textContent = me.accelerator ? me.accelerator.name : NETWORK;
     $('#who-name').textContent = me.user.name;
-    $('#sso-btn').hidden = !(CFG.ssoConfigured && me.role !== 'operator');
+    // Only accelerator staff may jump into the platform app. Founders never see it exists.
+    $('#sso-btn').hidden = !(CFG.ssoConfigured && me.role === 'accelerator_admin');
     applyBranding(me.workspace);
   }
 
@@ -202,8 +210,9 @@
     if (b.enabled && b.logo_url && /^https:\/\//.test(b.logo_url)) { logo.src = b.logo_url; logo.hidden = false; $('#brand-mark').hidden = true; }
     else { logo.hidden = true; $('#brand-mark').hidden = false; }
     if (b.enabled && b.app_name) $('#brand-name').textContent = b.app_name;
-    // "powered by" always has a value on the platform (guide §7.4).
-    $('#powered').textContent = `${NETWORK} · powered by ${b.powered_by === 'portablemind' || !b.powered_by ? 'PortableMind' : b.powered_by}`;
+    // "powered by" always has a value on the platform (guide §7.4). Founders see only the network.
+    $('#powered').textContent = me && me.role === 'founder' ? NETWORK
+      : `${NETWORK} · powered by ${b.powered_by === 'portablemind' || !b.powered_by ? 'PortableMind' : b.powered_by}`;
   }
 
   function showBillingLocked() {
@@ -211,8 +220,9 @@
     main.append(h('div', { class: 'card' },
       h('h1', {}, 'This workspace is locked for billing'),
       h('p', {}, 'Its coverage under the network’s agreement has ended and the grace period is over. Nothing has been deleted.'),
-      h('p', {}, 'Only an administrator of this workspace can restore access, by choosing a plan and adding their own card in the PortableMind app (Administration → Billing).'),
-      me && me.role !== 'operator' && CFG.ssoConfigured ? h('button', { onclick: () => openPortableMind('/app/admin/billing') }, 'Open billing in PortableMind ↗') : null));
+      me && me.role === 'founder' ? h('p', {}, 'Please contact your accelerator.')
+        : h('p', {}, 'Only an administrator of this workspace can restore access, by choosing a plan and adding their own card in the PortableMind app (Administration → Billing).'),
+      me && me.role === 'accelerator_admin' && CFG.ssoConfigured ? h('button', { onclick: () => openPortableMind('/app/admin/billing') }, 'Open billing in PortableMind ↗') : null));
   }
 
   async function openPortableMind(dest) {
@@ -246,7 +256,8 @@
           name.textContent = (b.enabled && b.app_name) || b.name || NETWORK;
           if (b.enabled && b.logo_url && /^https:\/\//.test(b.logo_url)) { logo.src = b.logo_url; logo.hidden = false; mark.hidden = true; }
           document.documentElement.style.setProperty('--brand', b.enabled && /^#[0-9a-f]{3,8}$/i.test(b.primary_color || '') ? b.primary_color : '#2f5bea');
-          $('#powered').textContent = `powered by ${b.powered_by === 'portablemind' || !b.powered_by ? 'PortableMind' : b.powered_by}`;
+          // Founders sign in here too, so the sign-in and sign-up pages name only the network.
+          $('#powered').textContent = NETWORK;
         } catch (_) { /* unthemed is fine */ }
       },
     };
@@ -1047,6 +1058,7 @@
     const list = r.agent_template_installs || r.installs || [];
     clear(main);
     main.append(h('h1', {}, 'Installed agents'), h('p', { class: 'lede' }, 'Agents installed from the network’s templates. Upgrades are yours to accept; an upgrade never touches what the agent learned on its own.'));
+    main.append(founderAgentsCard());
     if (!list.length) { main.append(h('div', { class: 'card empty' }, 'No template installs yet — see the Agent catalog.')); return; }
     const card = h('div', { class: 'card' });
     card.append(h('div', { class: 'table-wrap' }, h('table', {},
@@ -1068,6 +1080,26 @@
             } }, 'Detach'))));
       })))));
     main.append(card);
+  }
+
+  // Which agents founders can chat with on their Assistants page (each founder privately).
+  function founderAgentsCard() {
+    const body = h('div', {}, h('p', { class: 'muted' }, 'Loading…'));
+    api('/lp/acc/founder-agents', { quiet: true }).then((r) => {
+      const agents = r.agents || [];
+      clear(body);
+      if (!agents.length) { body.append(h('p', { class: 'muted' }, 'No agents in this workspace yet.')); return; }
+      body.append(h('div', { class: 'table-wrap' }, h('table', {}, h('tbody', {}, agents.map((a) => {
+        const box = h('input', { type: 'checkbox', checked: a.enabled, onchange: async () => {
+          try { await api('/lp/acc/founder-agents', { method: 'POST', body: { agent_id: a.id, enabled: box.checked } }); toast(`${a.name} ${box.checked ? 'is now available to founders' : 'is no longer available to founders'}.`, 'good'); }
+          catch (_) { box.checked = !box.checked; }
+        } });
+        return h('tr', {}, h('td', {}, h('b', {}, a.name), a.description ? h('div', { class: 'muted small' }, a.description) : null),
+          h('td', {}, h('label', { class: 'check' }, box, 'Founders can chat with it')));
+      })))));
+    }).catch((e) => clear(body).append(h('p', { class: 'muted' }, `Could not load agents: ${e.message}`)));
+    return h('div', { class: 'card' }, h('h2', {}, 'Assistants for founders'),
+      h('p', { class: 'small' }, 'Founders see the agents you tick here on their Assistants page. Each founder’s conversation with an agent is private to that founder.'), body);
   }
 
   function upgradeModal(i) {
@@ -1147,7 +1179,6 @@
   async function viewFounderStartup(main) {
     const r = founderState || await loadFounder();
     clear(main);
-    $('#sso-btn').hidden = !r.sso_available;
     main.append(h('h1', {}, `Welcome, ${me.user.name.split(' ')[0]}`), h('p', { class: 'lede' }, `Your startup’s space at ${me.accelerator ? me.accelerator.name : 'your accelerator'}.`));
     if (!r.teams.length) { main.append(h('div', { class: 'card' }, h('p', {}, 'You are not on a startup team yet. Ask a colleague for an invite link, or contact your accelerator.'))); return; }
     for (const t of r.teams) {
@@ -1224,13 +1255,146 @@
         h('td', { class: 'num' }, f.file_size ? `${Math.round(Number(f.file_size) / 1024)} KB` : '—'),
         h('td', { class: 'muted' }, fmt.date(f.created_at))))))));
     main.append(card);
-    main.append(h('div', { class: 'card' }, h('h2', {}, 'Uploading and organising'),
-      h('p', {}, 'Upload, folders and previews live in the workspace app.'),
-      founderState && founderState.sso_available ? h('button', { onclick: () => openPortableMind('/app/files') }, 'Open Files ↗') : h('p', { class: 'muted' }, 'Ask your accelerator to switch on single sign-on to open it from here.')));
   }
 
-  // ---------- founder: orchestration runs ----------
+  // ---------- founder: assistants ----------
+  // The agents the accelerator made available. Each founder gets a PRIVATE conversation per agent
+  // (nobody else sees it); the server adds the agent and prepends its @mention to every message.
+  async function viewFounderAssistants(main) {
+    const r = await api('/lp/founders/assistants');
+    const list = r.assistants || [];
+    clear(main);
+    main.append(h('h1', {}, 'Assistants'), h('p', { class: 'lede' }, `AI assistants from ${me.accelerator ? me.accelerator.name : 'your accelerator'}. Your conversations with them are private to you.`));
+    if (!list.length) { main.append(h('div', { class: 'card empty' }, 'Your accelerator has not made any assistants available yet.')); return; }
+    const id = Number(currentHash().split('/')[1]) || list[0].id;
+    const active = list.find((a) => a.id === id) || list[0];
+    if (list.length > 1) {
+      main.append(h('div', { class: 'row', style: 'margin-bottom:12px;flex-wrap:wrap' }, list.map((a) =>
+        h('button', { class: a.id === active.id ? '' : 'ghost', onclick: () => go(`assistants/${a.id}`) }, a.name))));
+    }
+    main.append(assistantCard(active));
+  }
+
+  function assistantCard(agent) {
+    const thread = h('div', { class: 'thread', style: 'max-height:460px' }, h('p', { class: 'muted' }, 'Opening your conversation…'));
+    const input = h('textarea', { rows: 3, placeholder: `Ask ${agent.name}…`, style: 'flex:1' });
+    const send = h('button', { type: 'submit' }, 'Send');
+    const status = h('div', { class: 'muted small', style: 'min-height:18px;margin-top:6px' });
+    const form = h('form', { class: 'row', style: 'margin-top:10px;align-items:flex-end' }, input, send);
+    const card = h('div', { class: 'card' },
+      h('div', { class: 'row between' }, h('h2', {}, agent.name), h('span', { class: 'pill' }, 'private to you')),
+      agent.description ? h('p', { class: 'muted' }, agent.description) : null,
+      thread, form, status);
+    let convId = null; let mention = ''; let lastCount = -1; let waiting = false;
+
+    const strip = (text) => (mention && text.startsWith(mention) ? text.slice(mention.length).trimStart() : text);
+    const paint = (messages) => {
+      clear(thread);
+      if (!messages.length) { thread.append(h('p', { class: 'muted' }, `Say hello — ask ${agent.name} anything about your application, your pitch or the programme.`)); return; }
+      for (const m of messages) {
+        const fromAgent = isAgentMessage(m, agent);
+        const body = strip(String((m.message && (m.message.content || m.message.text)) || m.body || ''));
+        thread.append(h('div', { class: 'msg' },
+          h('div', { class: 'msg-who' }, fromAgent ? agent.name : 'You', fromAgent ? h('span', { class: 'pill brand', style: 'margin-left:6px' }, 'assistant') : null,
+            h('span', { class: 'muted small', style: 'margin-left:8px' }, fmt.ago(m.created_at))),
+          fromAgent ? markdown(body) : h('div', { style: 'white-space:pre-wrap' }, body)));
+      }
+      thread.scrollTop = thread.scrollHeight;
+    };
+    const refresh = async () => {
+      if (!convId) return;
+      const r = await pmGet(`/llm_conversations/${convId}/llm_messages?limit=50`, true).catch(() => null);
+      if (!r) return;
+      const msgs = (r.llm_messages || []).slice().sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
+      if (msgs.length !== lastCount) { lastCount = msgs.length; paint(msgs); }
+      const last = msgs[msgs.length - 1];
+      waiting = !!last && !isAgentMessage(last, agent);
+      status.textContent = waiting ? `${agent.name} is thinking…` : '';
+    };
+
+    (async () => {
+      try {
+        const opened = await api(`/lp/founders/assistants/${agent.id}/open`, { method: 'POST' });
+        convId = opened.conversation_id; mention = opened.mention || ''; agent.mentionName = mention.replace(/^@/, '');
+        await refresh();
+        poll(refresh, 4000);
+      } catch (ex) { clear(thread).append(h('p', { class: 'muted' }, `This assistant is unavailable: ${ex.message}`)); form.hidden = true; }
+    })();
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const text = input.value.trim();
+      if (!text) return;
+      send.disabled = true;
+      try { await api(`/lp/founders/assistants/${agent.id}/send`, { method: 'POST', body: { message: text } }); input.value = ''; await refresh(); }
+      finally { send.disabled = false; }
+    });
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); } });
+    return card;
+  }
+
+  // The platform records an agent's reply with role "user" and the agent as sender, so the sender
+  // decides — not the role.
+  function isAgentMessage(m, agent) {
+    if (m.llm_agent || m.from_llm === true || m.sender_type === 'LlmAgent' || (m.message && m.message.role === 'assistant')) return true;
+    const who = m.sender_name || (m.sender && m.sender.name) || '';
+    return !!agent && who === agent.mentionName;
+  }
+
+  // Minimal, safe Markdown: headings, lists, bold/italics, code and paragraphs — built with h()
+  // (text nodes only), never innerHTML.
+  function markdown(src) {
+    const root = h('div', { class: 'md' });
+    const inline = (text) => {
+      const out = []; const re = /(\*\*[^*]+\*\*|`[^`]+`|\*[^*\s][^*]*\*|_[^_\s][^_]*_)/g; let i = 0; let m;
+      while ((m = re.exec(text))) {
+        if (m.index > i) out.push(text.slice(i, m.index));
+        const t = m[0];
+        if (t.startsWith('**')) out.push(h('strong', {}, t.slice(2, -2)));
+        else if (t.startsWith('`')) out.push(h('code', {}, t.slice(1, -1)));
+        else out.push(h('em', {}, t.slice(1, -1)));
+        i = m.index + t.length;
+      }
+      if (i < text.length) out.push(text.slice(i));
+      return out;
+    };
+    let list = null; let para = [];
+    // A blank line ends a paragraph but not a list, so "1. …  (blank)  2. …" stays one numbered list.
+    const endPara = () => { if (para.length) { root.append(h('p', {}, inline(para.join(' ')))); para = []; } };
+    const flush = () => { endPara(); list = null; };
+    for (const raw of String(src || '').split('\n')) {
+      const line = raw.trimEnd();
+      let m;
+      if (!line.trim()) { endPara(); continue; }
+      if ((m = line.match(/^(#{1,6})\s+(.*)$/))) { flush(); root.append(h(m[1].length <= 2 ? 'h3' : 'h4', {}, inline(m[2]))); continue; }
+      if ((m = line.match(/^\s*([-*•]|\d+[.)])\s+(.*)$/))) {
+        endPara();
+        const ordered = /\d/.test(m[1]);
+        if (!list || list.tagName !== (ordered ? 'OL' : 'UL')) { list = h(ordered ? 'ol' : 'ul', {}); root.append(list); }
+        list.append(h('li', {}, inline(m[2]))); continue;
+      }
+      if (/^\s*(---+|\*\*\*+)\s*$/.test(line)) { flush(); root.append(h('hr', {})); continue; }
+      if (list) list = null;
+      para.push(line.trim());
+    }
+    flush();
+    return root;
+  }
+
+  // ---------- founder: programmes (orchestration runs) ----------
+  const RUN_STATUS = {
+    orch_running: ['In progress', 'brand'], orch_paused: ['Paused', 'warn'], orch_completed: ['Complete', 'good'],
+    orch_failed: ['Stopped', 'bad'], orch_cancelled: ['Cancelled', ''],
+  };
+  const runPill = (r) => {
+    if (r.awaiting_approval) return h('span', { class: 'pill warn' }, 'Needs your review');
+    const [label, cls] = RUN_STATUS[r.status] || [fmt.cap(String(r.status || '').replace(/^orch_/, '')), ''];
+    return h('span', { class: `pill ${cls}` }, label);
+  };
+
   async function viewFounderRuns(main) {
+    const runId = Number(currentHash().split('/')[1]);
+    if (runId) return viewFounderRun(main, runId);
     const [templates, runs] = await Promise.all([
       pmGet('/orchestration_templates?limit=-1', true).catch(() => ({})),
       pmGet('/orchestration_executions?limit=25', true).catch(() => ({})),
@@ -1238,34 +1402,120 @@
     const tpl = templates.orchestration_templates || [];
     const ex = runs.orchestration_executions || [];
     clear(main);
-    main.append(h('h1', {}, 'Programme runs'), h('p', { class: 'lede' }, 'Work your accelerator has published for startups to run — applications, diligence packs, reviews. You see your startup’s runs and nobody else’s.'));
-    const start = h('div', { class: 'card' }, h('h2', {}, 'Start something'));
+    main.append(h('h1', {}, 'Programmes'), h('p', { class: 'lede' }, 'Guided work your accelerator has set up for startups: application reviews, diligence packs and more. Your whole team sees your startup’s programmes; nobody else does.'));
+    const start = h('div', { class: 'card' }, h('h2', {}, 'Start a programme'));
     if (!tpl.length) start.append(h('p', { class: 'muted' }, 'Your accelerator has not published anything to run yet.'));
     else start.append(h('div', { class: 'table-wrap' }, h('table', {},
       h('tbody', {}, tpl.map((t) => h('tr', {},
-        h('td', {}, h('div', {}, t.name), t.description ? h('div', { class: 'muted small' }, t.description) : null),
-        h('td', {}, h('button', { class: 'ghost', onclick: () => startRunModal(t) }, 'Start'))))))));
+        h('td', {}, h('div', {}, h('b', {}, t.name)), t.description ? h('div', { class: 'muted small' }, t.description) : null),
+        h('td', { style: 'text-align:right' }, h('button', { onclick: () => startRunModal(t) }, 'Start'))))))));
     main.append(start);
-    const card = h('div', { class: 'card' }, h('h2', {}, 'Your runs'));
-    if (!ex.length) card.append(h('div', { class: 'empty' }, 'No runs yet.'));
+    const card = h('div', { class: 'card' }, h('h2', {}, 'Your programmes'));
+    if (!ex.length) card.append(h('div', { class: 'empty' }, 'Nothing started yet.'));
     else card.append(h('div', { class: 'table-wrap' }, h('table', {},
-      h('thead', {}, h('tr', {}, ['Run', 'Stage', 'Started', ''].map((x) => h('th', {}, x)))),
-      h('tbody', {}, ex.map((r) => h('tr', {},
-        h('td', {}, r.name || `Run #${r.id}`), h('td', {}, r.current_stage_name || '—'), h('td', { class: 'muted' }, fmt.ago(r.created_at)),
-        h('td', {}, founderState && founderState.sso_available ? h('button', { class: 'link', onclick: () => openPortableMind(`/app/orchestration/${r.id}`) }, 'Open ↗') : null)))))));
+      h('thead', {}, h('tr', {}, ['Programme', 'Step', 'Status', 'Started'].map((x) => h('th', {}, x)))),
+      h('tbody', {}, ex.map((r) => h('tr', { style: 'cursor:pointer', onclick: () => go(`runs/${r.id}`) },
+        h('td', {}, h('a', { href: `#/runs/${r.id}` }, r.name || r.template_name || `Programme #${r.id}`)),
+        h('td', {}, stageLabel(r)), h('td', {}, runPill(r)), h('td', { class: 'muted' }, fmt.ago(r.created_at))))))));
     main.append(card);
+    if (ex.some((r) => r.status === 'orch_running' && !r.awaiting_approval)) poll(() => { if (currentHash() === 'runs') render(); }, 15000);
+  }
+
+  const stageLabel = (r) => {
+    const st = (r.stages || []).find((x) => (x.stage_name || x.name) === r.current_stage_name);
+    return (st && st.label) || (r.current_stage_name ? fmt.cap(String(r.current_stage_name).replace(/_/g, ' ')) : '—');
+  };
+
+  async function viewFounderRun(main, id) {
+    const r = await pmGet(`/orchestration_executions/${id}`);
+    const run = r.orchestration_execution || {};
+    const stages = (run.stages || []).slice().sort((a, b) => (a.position || 0) - (b.position || 0));
+    const artifacts = run.artifacts || [];
+    clear(main);
+    main.append(
+      h('p', {}, h('a', { href: '#/runs' }, '← All programmes')),
+      h('div', { class: 'row between' }, h('h1', {}, run.name || run.template_name || `Programme #${id}`), runPill(run)),
+      h('p', { class: 'muted' }, `${run.template_name || ''}${run.started_at ? ` · started ${fmt.ago(run.started_at)}` : ''}`));
+
+    const request = run.inputs && (run.inputs.feature_request || run.inputs.request);
+    if (request) main.append(h('details', { class: 'card' }, h('summary', {}, h('b', {}, 'What you submitted')), h('div', { style: 'white-space:pre-wrap;margin-top:8px' }, request)));
+
+    stages.forEach((st, idx) => {
+      const name = st.stage_name || st.name;
+      const outs = artifacts.filter((a) => a.produced_by_stage === name);
+      const awaiting = st.status === 'orch_stage_awaiting_approval';
+      const done = /completed|approved/.test(String(st.status || ''));
+      const running = /running|in_progress|pending_agent|working/.test(String(st.status || ''));
+      const pill = awaiting ? h('span', { class: 'pill warn' }, 'Needs your review')
+        : done ? h('span', { class: 'pill good' }, 'Done')
+          : running ? h('span', { class: 'pill brand' }, 'Working…')
+            : /failed|error/.test(String(st.status || '')) ? h('span', { class: 'pill bad' }, 'Stopped')
+              : h('span', { class: 'pill' }, 'Not started');
+      const card = h('div', { class: 'card' },
+        h('div', { class: 'row between' }, h('h2', {}, `${idx + 1}. ${st.label || name}`), pill),
+        // The step's own summary only when it produced no document (the document says it better).
+        st.output_summary && (done || awaiting) && !outs.length ? h('p', { class: 'muted' }, st.output_summary) : null);
+      for (const a of outs) card.append(artifactBlock(id, a));
+      if (st.pending_question) card.append(h('div', { class: 'notice warn' }, 'A question is waiting for you: ', String(st.pending_question.question || st.pending_question.text || st.pending_question)));
+      if (st.error_message && !done) card.append(h('div', { class: 'notice bad' }, 'This step stopped. Your accelerator has been notified.'));
+      if (awaiting) card.append(gateActions(id));
+      main.append(card);
+    });
+
+    if (run.status === 'orch_completed') main.append(h('div', { class: 'notice good' }, 'This programme is complete. Your accelerator can see the results.'));
+    if (run.status === 'orch_running' && !run.awaiting_approval) poll(async () => {
+      const s = await pmGet(`/orchestration_executions/${id}/status`, true).catch(() => null);
+      const x = s && s.orchestration_execution;
+      if (x && (x.awaiting_approval || x.status !== 'orch_running' || x.current_stage_name !== run.current_stage_name)) render();
+    }, 8000);
+  }
+
+  function artifactBlock(runId, a) {
+    const box = h('div', { class: 'thread', style: 'max-height:none;background:var(--surface);margin-top:10px' }, h('p', { class: 'muted' }, 'Loading…'));
+    const wrap = h('div', {}, h('div', { class: 'muted small', style: 'margin-top:10px' }, a.description || fmt.cap(String(a.key || 'Output').replace(/_/g, ' '))), box);
+    api(`/lp/founders/runs/${runId}/artifacts/${a.id}`, { quiet: true }).then((r) => {
+      clear(box).append(r.kind === 'text' ? (/markdown|plain/.test(r.content_type) || !/json/.test(r.content_type) ? markdown(r.text) : h('pre', {}, r.text))
+        : h('p', { class: 'muted' }, r.kind === 'too_large' ? 'This output is too large to show here.' : 'This output is a file that cannot be previewed here.'));
+    }).catch((e) => clear(box).append(h('p', { class: 'muted' }, `Could not load this output: ${e.message}`)));
+    return wrap;
+  }
+
+  function gateActions(runId) {
+    const notes = h('textarea', { rows: 2, placeholder: 'Optional: anything to add, or what should change' });
+    const approve = h('button', {}, 'Accept and continue');
+    const reject = h('button', { class: 'ghost' }, 'Ask for changes');
+    const act = async (kind) => {
+      const text = notes.value.trim();
+      if (kind === 'reject' && !text) { toast('Say what should change, so the next version gets it right.', 'bad'); notes.focus(); return; }
+      approve.disabled = true; reject.disabled = true;
+      try {
+        if (kind === 'approve') await pmSend('POST', `/orchestration_executions/${runId}/approve_stage`, text ? { notes: text } : {});
+        else await pmSend('POST', `/orchestration_executions/${runId}/reject_stage`, { reason: text });
+        toast(kind === 'approve' ? 'Accepted — moving on.' : 'Sent back with your notes.', 'good'); render();
+      } finally { approve.disabled = false; reject.disabled = false; }
+    };
+    approve.addEventListener('click', () => act('approve'));
+    reject.addEventListener('click', () => act('reject'));
+    return h('div', { style: 'margin-top:12px' }, h('div', { class: 'field' }, h('label', {}, 'Your review'), notes), h('div', { class: 'row' }, approve, reject));
   }
 
   function startRunModal(t) {
-    const name = h('input', { value: `${t.name} — ${me.user.name}`, required: true });
-    const btn = h('button', { type: 'submit' }, 'Start run');
-    const form = h('form', {}, fld('sr-name', 'Name this run', name), h('p', { class: 'muted small' }, 'Your accelerator sees it; other startups do not.'), h('div', { class: 'actions' }, btn));
+    const name = h('input', { value: `${t.name} — ${(founderState && founderState.teams[0] && founderState.teams[0].name) || me.user.name}`, required: true });
+    const req = h('textarea', { rows: 10, required: true, placeholder: 'Paste your application or the material you want worked on…' });
+    const btn = h('button', { type: 'submit' }, 'Start');
+    const form = h('form', {},
+      t.description ? h('p', { class: 'muted' }, t.description) : null,
+      fld('sr-req', 'What should we work on?', req, 'Paste your application, pitch or notes. Include everything you would want a reviewer to see.'),
+      fld('sr-name', 'Name', name),
+      h('p', { class: 'muted small' }, 'Your team and your accelerator see this programme; other startups do not.'), h('div', { class: 'actions' }, btn));
     const m = modal(`Start ${t.name}`, form);
     form.addEventListener('submit', async (e) => {
       e.preventDefault(); btn.disabled = true;
       try {
-        await pmSend('POST', '/orchestration_executions', { orchestration_execution: { orchestration_template_id: t.id, name: name.value.trim() } });
-        m.close(); toast('Run started.', 'good'); render();
+        if (!founderState) await loadFounder();
+        const team = founderState && founderState.teams[0];
+        const r = await api('/lp/founders/runs', { method: 'POST', body: { template_id: t.id, name: name.value.trim(), request: req.value.trim(), team_id: team ? team.id : undefined } });
+        m.close(); toast('Started. The first step usually takes a minute or two.', 'good'); go(`runs/${r.run.id}`);
       } finally { btn.disabled = false; }
     });
   }

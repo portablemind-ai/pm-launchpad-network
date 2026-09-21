@@ -15,7 +15,8 @@
  *                 /lp/auth/*        sign-in (incl. MFA), sign-out, who-am-I, sign-in branding
  *                 /lp/op/*          network console lanes (Enterprise admin)
  *                 /lp/acc/*         accelerator set-up lanes (sub-workspace admin)
- *                 /lp/founders/*    founder sign-up (provisioning key), roster, add teammate
+ *                 /lp/founders/*    founder sign-up (provisioning key), roster, add teammate,
+ *                                   assistants (agents) and programme runs
  *                 /lp/sso/go        white-label sign-on into the PortableMind app
  *                 /config.js        non-secret runtime config
  */
@@ -35,6 +36,7 @@ const { createAuthLane } = require('./lib/lanes/auth');
 const { createOperatorLane } = require('./lib/lanes/operator');
 const { createAcceleratorLane } = require('./lib/lanes/accelerator');
 const { createFounderLanes } = require('./lib/lanes/founders');
+const { createFounderWorkLanes } = require('./lib/lanes/founder-work');
 
 function createApp(config) {
   const pm = createClient({ pmApi: config.pmApi, timeoutMs: config.backendTimeoutMs });
@@ -46,6 +48,7 @@ function createApp(config) {
   const op = createOperatorLane(deps);
   const acc = createAcceleratorLane(deps);
   const founders = createFounderLanes({ ...deps, auth });
+  const work = createFounderWorkLanes({ ...deps, founders });
 
   // [method, pattern, handler(req, res, url, ...captures)]
   const routes = [
@@ -71,6 +74,8 @@ function createApp(config) {
     ['POST', /^\/lp\/acc\/setup\/app-access$/, acc.syncAppAccess],
     ['POST', /^\/lp\/acc\/setup\/invite-code$/, acc.setInviteCode],
     ['POST', /^\/lp\/acc\/setup\/invite-code\/clear$/, acc.clearInviteCode],
+    ['GET', /^\/lp\/acc\/founder-agents$/, acc.founderAgents],
+    ['POST', /^\/lp\/acc\/founder-agents$/, acc.setFounderAgent],
 
     ['POST', /^\/lp\/founders\/signup$/, founders.signup],
     ['GET', /^\/lp\/founders\/me$/, founders.me],
@@ -78,6 +83,12 @@ function createApp(config) {
     ['POST', /^\/lp\/founders\/join-link$/, founders.joinLink],
     ['GET', /^\/lp\/founders\/join-info$/, founders.joinInfo],
     ['POST', /^\/lp\/sso\/go$/, founders.ssoGo],
+
+    ['GET', /^\/lp\/founders\/assistants$/, work.assistants],
+    ['POST', /^\/lp\/founders\/assistants\/(\d+)\/open$/, work.openAssistant],
+    ['POST', /^\/lp\/founders\/assistants\/(\d+)\/send$/, work.sendToAssistant],
+    ['POST', /^\/lp\/founders\/runs$/, work.startRun],
+    ['GET', /^\/lp\/founders\/runs\/(\d+)\/artifacts\/(\d+)$/, work.artifact],
   ];
 
   async function handle(req, res) {
