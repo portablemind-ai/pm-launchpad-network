@@ -1289,6 +1289,7 @@
       thread, form, status);
     let convId = null; let mention = ''; let lastCount = -1; let waiting = false;
 
+    // The server prefixes each message with the agent's @mention (that is what wakes the agent).
     const strip = (text) => (mention && text.startsWith(mention) ? text.slice(mention.length).trimStart() : text);
     const paint = (messages) => {
       clear(thread);
@@ -1439,7 +1440,7 @@
       h('div', { class: 'row between' }, h('h1', {}, run.name || run.template_name || `Programme #${id}`), runPill(run)),
       h('p', { class: 'muted' }, `${run.template_name || ''}${run.started_at ? ` · started ${fmt.ago(run.started_at)}` : ''}`));
 
-    const request = run.inputs && (run.inputs.feature_request || run.inputs.request);
+    const request = run.inputs && run.inputs.request;
     if (request) main.append(h('details', { class: 'card' }, h('summary', {}, h('b', {}, 'What you submitted')), h('div', { style: 'white-space:pre-wrap;margin-top:8px' }, request)));
 
     stages.forEach((st, idx) => {
@@ -1691,11 +1692,11 @@
     f.addEventListener('submit', async (e) => {
       e.preventDefault(); btn.disabled = true;
       try {
-        const vals = renderer.values();
-        for (const fd of staffForm.fields) if (fd.type === 'number' && vals[fd.key] !== undefined) vals[fd.key] = vals[fd.key] === '' ? null : Number(vals[fd.key]);
-        for (const k of Object.keys(vals)) if (vals[k] === '') vals[k] = null;
-        await pmSend('PUT', `/dynamic_models/${rec.id}`, { dynamic_model: { custom_fields: vals } });
+        await api(`/lp/acc/forms/records/${rec.id}`, { method: 'POST', body: { values: renderer.values() }, quiet: true });
         m.close(); toast('Saved.', 'good'); formResponsesDrawer(t);
+      } catch (ex) {
+        if (ex.body && ex.body.field_errors) renderer.showErrors(ex.body.field_errors);
+        toast(ex.message, 'bad');
       } finally { btn.disabled = false; }
     });
   }

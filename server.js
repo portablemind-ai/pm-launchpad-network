@@ -49,8 +49,8 @@ function createApp(config) {
   const op = createOperatorLane(deps);
   const acc = createAcceleratorLane(deps);
   const founders = createFounderLanes({ ...deps, auth });
-  const work = createFounderWorkLanes({ ...deps, founders });
   const forms = createFormsLanes({ ...deps, founders });
+  const work = createFounderWorkLanes({ ...deps, founders, forms });
 
   // [method, pattern, handler(req, res, url, ...captures)]
   const routes = [
@@ -82,6 +82,7 @@ function createApp(config) {
     ['POST', /^\/lp\/acc\/forms\/setup$/, forms.adminSetup],
     ['POST', /^\/lp\/acc\/forms\/config$/, forms.adminConfig],
     ['GET', /^\/lp\/acc\/forms\/([a-z0-9_-]+)\/responses$/, forms.adminResponses],
+    ['POST', /^\/lp\/acc\/forms\/records\/(\d+)$/, forms.adminStaffSave],
 
     ['POST', /^\/lp\/founders\/signup$/, founders.signup],
     ['GET', /^\/lp\/founders\/me$/, founders.me],

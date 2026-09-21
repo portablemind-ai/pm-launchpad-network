@@ -192,3 +192,46 @@ test('founder forms: only founder-editable fields are accepted, validated and co
   assert.equal(def.fields.find((f) => f.key === 'score').read_only, true);
   assert.equal(publicDefinition(type, { forFounder: false }).fields.length, 9);
 });
+
+const { createFormsLanes } = require('../../lib/lanes/forms');
+
+test('startup data for agents: own team only, labelled, staff-set fields apart, staff-only fields never', async () => {
+  const type = {
+    internal_identifier: 'startup_profile', description: 'Startup profile',
+    field_definitions: { sections: [], fields: [
+      { key: 'stage', label: 'Stage', type: 'select', options: [{ value: 'pre_seed', label: 'Pre-seed' }] },
+      { key: 'team', label: 'Full-time team', type: 'number' },
+      { key: 'score', label: 'Committee score', type: 'select', read_only: true, options: ['4'] },
+      { key: 'notes', label: 'Staff notes', type: 'textarea', visible: false },
+    ] },
+  };
+  const calls = [];
+  const pm = { async call(p, o) {
+    calls.push({ p, o });
+    const q = (o.query && o.query.search_query) ? JSON.parse(o.query.search_query).where : {};
+    if (p === '/dynamic_model_types') return { ok: true, body: { dynamic_model_types: [type] } };
+    if (p === '/role_types') return { ok: true, body: { role_types: [{ id: 3 }] } };
+    if (p === '/dynamic_model_party_roles') return { ok: true, body: { dynamic_model_party_roles: q.party_id === 683 ? [{ dynamic_model_id: 11, party_id: 683, role_type_id: 3 }] : [] } };
+    if (p === '/dynamic_models') {
+      assert.deepEqual(q.id, { in: [11] }); // only the records the team owns are ever fetched
+      return { ok: true, body: { dynamic_models: [
+        { id: 11, dynamic_model_type: 'startup_profile', created_at: '2026-09-01', custom_fields: { stage: 'pre_seed', team: 5, score: '4', notes: 'staff only' } },
+        { id: 99, dynamic_model_type: 'startup_profile', created_at: '2026-09-02', custom_fields: { stage: 'pre_seed', team: 50 } }, // not owned: must be ignored
+      ] } };
+    }
+    throw new Error(`unexpected ${p}`);
+  } };
+  const secrets = { get: (ws, k) => (k === 'forms_key' ? 'k' : null) };
+  const store = { state: { founderForms: { acc: { startup_profile: { mode: 'single' } } } } };
+  const lanes = createFormsLanes({ pm, sessions: {}, secrets, store, founders: {} });
+
+  const { data, text } = await lanes.startupData('acc', { id: 683, name: 'Orbit Labs' });
+  assert.deepEqual(data, { startup: 'Orbit Labs', forms: { startup_profile: { title: 'Startup profile', kind: 'one', entries: [
+    { answers: { Stage: 'Pre-seed', 'Full-time team': '5' }, from_accelerator: { 'Committee score': '4' } }] } } });
+  assert.match(text, /Committee score \(set by the accelerator\): 4/);
+  assert.doesNotMatch(text, /staff only|Staff notes|50/);
+  assert.ok(calls.every((c) => c.o.apiKey === 'k'), 'reads use the forms key, never a founder session');
+
+  const other = await lanes.startupData('acc', { id: 686, name: 'Nova Grid' });
+  assert.deepEqual(other, { data: {}, text: '' });
+});

@@ -1,12 +1,56 @@
 {
   "internal_identifier": "lp_forms_writer",
-  "description": "Founder forms key (Launchpad Network): reads the workspace's custom object types and reads/writes their records on behalf of verified founders",
+  "description": "Founder forms key (Launchpad Network): reads the workspace's custom object types, reads/writes their records, and links each record to the startup team that owns it \u2014 on behalf of verified founders",
   "export_version": "1.0",
   "external": false,
   "capabilities": [
-    { "action": "view", "resource": "DynamicModelTypes", "scope": null, "internal_identifier": "lp_forms_view_types" },
-    { "action": "view", "resource": "DynamicModels", "scope": null, "internal_identifier": "lp_forms_view_records" },
-    { "action": "create", "resource": "DynamicModels", "scope": null, "internal_identifier": "lp_forms_create_records" },
-    { "action": "update", "resource": "DynamicModels", "scope": null, "internal_identifier": "lp_forms_update_records" }
+    {
+      "action": "view",
+      "resource": "DynamicModelTypes",
+      "scope": null,
+      "internal_identifier": "lp_forms_view_types"
+    },
+    {
+      "action": "view",
+      "resource": "DynamicModels",
+      "scope": null,
+      "internal_identifier": "lp_forms_view_records"
+    },
+    {
+      "action": "create",
+      "resource": "DynamicModels",
+      "scope": null,
+      "internal_identifier": "lp_forms_create_records"
+    },
+    {
+      "action": "update",
+      "resource": "DynamicModels",
+      "scope": null,
+      "internal_identifier": "lp_forms_update_records"
+    },
+    {
+      "action": "destroy",
+      "resource": "DynamicModels",
+      "scope": null,
+      "internal_identifier": "lp_forms_rollback_records"
+    },
+    {
+      "action": "view",
+      "resource": "DynamicModelPartyRoles",
+      "scope": null,
+      "internal_identifier": "lp_forms_view_record_parties"
+    },
+    {
+      "action": "create",
+      "resource": "DynamicModelPartyRoles",
+      "scope": null,
+      "internal_identifier": "lp_forms_link_record_parties"
+    },
+    {
+      "action": "view",
+      "resource": "RoleTypes",
+      "scope": null,
+      "internal_identifier": "lp_forms_view_role_types"
+    }
   ]
 }

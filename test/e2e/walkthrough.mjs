@@ -294,6 +294,8 @@ try {
   r = await f1.post(`/lp/founders/assistants/${installedAgentId}/open`);
   const chatA = r.body.conversation_id;
   check('the founder opens a private conversation with it', ok(r) && chatA && r.body.mention === `@${agentName}`, r.body);
+  r = await f1.get(`/api/v1/llm_conversations/${chatA}`);
+  check('…whose AI context (system_prompt) names the founder’s startup, not in any message', ok(r) && /of the startup /.test(r.body.llm_conversation.system_prompt || ''), { sp: r.body.llm_conversation && r.body.llm_conversation.system_prompt });
   r = await f1.post(`/lp/founders/assistants/${installedAgentId}/send`, { message: 'Hello' });
   check('…and messages it (the server adds the @mention)', ok(r) && r.body.conversation_id === chatA, r.body);
   r = await f2.post(`/lp/founders/assistants/${installedAgentId}/open`);
@@ -332,8 +334,12 @@ try {
   r = await f1.post('/lp/founders/forms/e2e_profile', { values: { name: 'Alpha', stage: 'seed', score: 5, notes: 'x' } });
   const recId = r.body.record && r.body.record.id;
   check('the founder saves; read-only and hidden fields are ignored', ok(r) && recId && r.body.record.values.score === undefined && r.body.record.values.notes === undefined, r.body);
-  r = await admin.put(`/api/v1/dynamic_models/${recId}`, { dynamic_model: { custom_fields: { score: 4, notes: 'staff only' } } });
-  check('the admin sets the staff fields', ok(r), r.body);
+  r = await admin.post(`/lp/acc/forms/records/${recId}`, { values: { name: 'Hijacked', score: 'not-a-number' } });
+  check('staff values are validated too', r.status === 422 && r.body.field_errors && r.body.field_errors.score, r.body);
+  r = await admin.post(`/lp/acc/forms/records/${recId}`, { values: { name: 'Hijacked', score: 4, notes: 'staff only' } });
+  check('the admin sets the staff fields — and only those (the founder’s answer is untouched)', ok(r) && r.body.record.values.score === 4 && r.body.record.values.name === 'Alpha', r.body);
+  r = await f1.post('/lp/acc/forms/records/' + recId, { values: { score: 5 } });
+  check('a founder cannot use the staff lane', r.status === 403);
   r = await f1.get('/lp/founders/forms');
   const vals = (r.body.forms.find((x) => x.iid === 'e2e_profile').records[0] || {}).values || {};
   check('the founder sees the score but never the notes', vals.name === 'Alpha' && vals.score === 4 && vals.notes === undefined, vals);
@@ -345,6 +351,18 @@ try {
   check('the admin sees every startup’s answers, including staff fields', ok(r) && r.body.records.some((x) => x.id === recId && x.values.notes === 'staff only'), r.body);
   r = await f1.post('/lp/acc/forms/config', { iid: 'e2e_profile', enabled: false });
   check('a founder cannot change which forms are shown', r.status === 403);
+  // A log (many entries per startup): exercises reads of several owned records at once.
+  r = await admin.post('/api/v1/dynamic_model_types', { dynamic_model_type: { internal_identifier: 'e2e_log', description: 'E2E log' } });
+  const logTypeId = r.body.dynamic_model_type && r.body.dynamic_model_type.id;
+  r = await admin.put(`/api/v1/dynamic_model_types/${logTypeId}`, { dynamic_model_type: { field_definitions: { sections: [], fields: [
+    { key: 'note', label: 'Note', type: 'text', validation: { required: true } }] } } });
+  r = await admin.post('/lp/acc/forms/config', { iid: 'e2e_log', enabled: true, mode: 'multiple' });
+  for (const note of ['first', 'second']) r = await f1.post('/lp/founders/forms/e2e_log', { values: { note } });
+  r = await f1.get('/lp/founders/forms');
+  const log = ok(r) && r.body.forms.find((x) => x.iid === 'e2e_log');
+  check('a log keeps every entry, newest first', !!log && log.records.length === 2 && log.records[0].values.note === 'second', r.body);
+  r = await f1.get('/lp/founders/forms');
+  check('…and the profile still reads alongside it', ok(r) && r.body.forms.find((x) => x.iid === 'e2e_profile').records.length === 1, r.body);
 
   // Default configuration: founders must confirm their email before they can sign in.
   {

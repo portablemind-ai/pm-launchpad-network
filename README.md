@@ -142,16 +142,56 @@ Browser ──► this server (same origin) ──► PortableMind API
   and this app renders whatever it finds. In *Founder forms* the admin picks which types founders
   fill in and whether each is **one per startup** (a profile) or **many** (a log, e.g. monthly
   updates), and reads every startup's answers.
+  - **Ownership uses the platform's own relationship:** each record gets a
+    `DynamicModelPartyRole` — party = the startup team, role type = the built-in `owner`. Staff see
+    in the platform which startup a record belongs to, and agents or reports can query by party.
   - Custom object rows have **no owner column**, so a scoped founder role cannot say "my
-    startup's rows". The founder role therefore has **no** custom-object permission. The server
-    holds a separate *forms key* (`lp_forms_writer`) and only ever reads or writes the row tagged
-    `lp-team-<team id>` for the founder's **verified** team.
+    startup's rows"; and the platform checks only that a linked record is in the same workspace,
+    not that the caller can see it, so founders must not create party roles themselves. The
+    founder role therefore has **no** custom-object permission. The server holds a separate
+    *forms key* (`lp_forms_writer`) and only reads or writes records owned by the founder's
+    **verified** team. If linking a new record to its team fails, the record is deleted again
+    (the key's only `destroy`), so no unowned record is left behind.
   - The server validates every submission against the definition (required, options, numbers,
     dates, URLs, lengths), accepts only founder-editable fields, and strips hidden fields from
     everything it returns. The platform also rejects unknown keys and bad option values, but it
     does **not** enforce `required`.
-  - Staff edit the read-only and hidden fields with their own session, straight through the pipe
-    (`PUT /dynamic_models/:id`).
+  - Staff set the read-only and hidden fields through `POST /lp/acc/forms/records/:id`: validated
+    like any submission, restricted to exactly the fields founders cannot edit, written with the
+    admin's own session.
+  - **Performance.** A team's records are read in **two** calls however many forms exist (its
+    `owner` links, then those records by `{"id": {"in": [...]}}`), cached per team, and dropped
+    whenever this server changes them (founder save, staff save, form settings); a TTL only bounds
+    staleness for edits made elsewhere. A founder's assistant message costs **one** platform call
+    in the steady state: the conversation is verified when opened, and its AI context is rewritten
+    only when its digest changes.
+- **Agents know the startup, through the platform's own channels — never inside a founder's
+  message.** The startup's own answers (founder-visible fields of its own records only; never
+  staff-only fields, never another startup's) reach agents two ways:
+  - **Programmes:** the run is started with `context.startup_data`. Agents read the full run
+    context at the start of each step, and the template's step instructions (Dana edits them in AI
+    Studio) tell them how to use it. It is self-describing, so an agent needs no schema:
+
+    ```json
+    { "startup": "Orbit Labs",
+      "forms": { "startup_profile": { "title": "Startup profile", "kind": "one",
+        "entries": [ { "answers": { "Stage": "Pre-seed", "Full-time team size": "5" },
+                       "from_accelerator": { "Committee score": "4" } } ] },
+                 "monthly_update": { "title": "Monthly update", "kind": "many", "entries": [ … ] } } }
+    ```
+
+    `answers` are the startup's own statements; `from_accelerator` holds read-only fields the
+    accelerator filled in, kept apart so an agent never presents them as the startup's claims.
+  - **Assistants:** the conversation's `system_prompt` — the platform's per-conversation AI context
+    — holds "you are talking with <founder> of <startup>" plus the startup's answers. It is set when
+    the conversation is created and refreshed when the answers change (founders may update
+    conversations they own: `lp_update_llm_conversations_own`). **Platform dependency:** an
+    @mentioned agent sees this context, and it can be updated after creation, only on a platform
+    release that passes a conversation's own AI context to participating agents. On an older
+    platform the context is stored but the agent does not see it.
+  - Agents are deliberately **not** given the platform's `custom_object_tool`: it reads with the
+    agent's own, workspace-wide access, so a founder could ask an assistant for another startup's
+    answers or the staff notes.
 - **Colleagues join with a signed link, not a handed-over password.** Before issuing one, the server
   checks the roster (read with the key) for the caller's **session** party id. The link is
   HMAC-signed, names one team and expires after 7 days. A colleague who uses it registers with their
