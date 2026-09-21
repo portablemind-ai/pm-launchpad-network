@@ -16,7 +16,7 @@
  *                 /lp/op/*          network console lanes (Enterprise admin)
  *                 /lp/acc/*         accelerator set-up lanes (sub-workspace admin)
  *                 /lp/founders/*    founder sign-up (provisioning key), roster, add teammate,
- *                                   assistants (agents) and programme runs
+ *                                   assistants (agents), programme runs, founder forms
  *                 /lp/sso/go        white-label sign-on into the PortableMind app
  *                 /config.js        non-secret runtime config
  */
@@ -37,6 +37,7 @@ const { createOperatorLane } = require('./lib/lanes/operator');
 const { createAcceleratorLane } = require('./lib/lanes/accelerator');
 const { createFounderLanes } = require('./lib/lanes/founders');
 const { createFounderWorkLanes } = require('./lib/lanes/founder-work');
+const { createFormsLanes } = require('./lib/lanes/forms');
 
 function createApp(config) {
   const pm = createClient({ pmApi: config.pmApi, timeoutMs: config.backendTimeoutMs });
@@ -49,6 +50,7 @@ function createApp(config) {
   const acc = createAcceleratorLane(deps);
   const founders = createFounderLanes({ ...deps, auth });
   const work = createFounderWorkLanes({ ...deps, founders });
+  const forms = createFormsLanes({ ...deps, founders });
 
   // [method, pattern, handler(req, res, url, ...captures)]
   const routes = [
@@ -76,6 +78,10 @@ function createApp(config) {
     ['POST', /^\/lp\/acc\/setup\/invite-code\/clear$/, acc.clearInviteCode],
     ['GET', /^\/lp\/acc\/founder-agents$/, acc.founderAgents],
     ['POST', /^\/lp\/acc\/founder-agents$/, acc.setFounderAgent],
+    ['GET', /^\/lp\/acc\/forms$/, forms.adminList],
+    ['POST', /^\/lp\/acc\/forms\/setup$/, forms.adminSetup],
+    ['POST', /^\/lp\/acc\/forms\/config$/, forms.adminConfig],
+    ['GET', /^\/lp\/acc\/forms\/([a-z0-9_-]+)\/responses$/, forms.adminResponses],
 
     ['POST', /^\/lp\/founders\/signup$/, founders.signup],
     ['GET', /^\/lp\/founders\/me$/, founders.me],
@@ -89,6 +95,8 @@ function createApp(config) {
     ['POST', /^\/lp\/founders\/assistants\/(\d+)\/send$/, work.sendToAssistant],
     ['POST', /^\/lp\/founders\/runs$/, work.startRun],
     ['GET', /^\/lp\/founders\/runs\/(\d+)\/artifacts\/(\d+)$/, work.artifact],
+    ['GET', /^\/lp\/founders\/forms$/, forms.founderList],
+    ['POST', /^\/lp\/founders\/forms\/([a-z0-9_-]+)$/, forms.founderSave],
   ];
 
   async function handle(req, res) {

@@ -133,10 +133,12 @@
       ['catalog', 'Agent catalog', viewAccCatalog],
       ['agents', 'Installed agents', viewAccAgents],
       ['startups', 'Startups', viewAccStartups],
+      ['forms', 'Founder forms', viewAccForms],
       ['usage', 'Usage & plan', viewAccUsage],
     ],
     founder: [
       ['startup', 'My startup', viewFounderStartup],
+      ['company', 'Company info', viewFounderForms],
       ['assistants', 'Assistants', viewFounderAssistants],
       ['runs', 'Programmes', viewFounderRuns],
       ['files', 'Files', viewFounderFiles],
@@ -1516,6 +1518,184 @@
         const team = founderState && founderState.teams[0];
         const r = await api('/lp/founders/runs', { method: 'POST', body: { template_id: t.id, name: name.value.trim(), request: req.value.trim(), team_id: team ? team.id : undefined } });
         m.close(); toast('Started. The first step usually takes a minute or two.', 'good'); go(`runs/${r.run.id}`);
+      } finally { btn.disabled = false; }
+    });
+  }
+
+  // ---------- founder forms (accelerator-defined custom objects) ----------
+  // One renderer for any form definition the accelerator built in the platform's admin UI.
+  // Returns { el, values() , showErrors(map) }. Every value is set through properties / text
+  // nodes — never innerHTML.
+  function formRenderer(form, values, { editable = true, staff = false } = {}) {
+    const inputs = {}; const errs = {};
+    const fieldEl = (f) => {
+      const v = values ? values[f.key] : undefined;
+      const ro = !editable || f.read_only;
+      let input; let read;
+      if (ro) {
+        const shown = displayValue(f, v);
+        input = h('div', { class: shown ? '' : 'muted' }, shown || '—');
+        read = null;
+      } else if (f.type === 'textarea') {
+        input = h('textarea', { rows: 4, placeholder: f.placeholder || '', value: v == null ? '' : String(v) }); read = () => input.value;
+      } else if (f.type === 'boolean') {
+        const box = h('input', { type: 'checkbox', checked: v === true });
+        input = h('label', { class: 'check' }, box, 'Yes'); read = () => box.checked;
+      } else if (f.type === 'select') {
+        input = h('select', {}, h('option', { value: '' }, '— choose —'), (f.options || []).map((o) => h('option', { value: o.value }, o.label)));
+        input.value = v == null ? '' : String(v); read = () => input.value;
+      } else if (f.type === 'multi_select') {
+        const chosen = new Set(Array.isArray(v) ? v.map(String) : []);
+        const boxes = (f.options || []).map((o) => { const b = h('input', { type: 'checkbox', checked: chosen.has(o.value) }); b.dataset.value = o.value; return h('label', { class: 'check', style: 'margin-right:14px' }, b, o.label); });
+        input = h('div', { class: 'row', style: 'flex-wrap:wrap' }, boxes);
+        read = () => boxes.map((l) => l.firstChild).filter((b) => b.checked).map((b) => b.dataset.value);
+      } else {
+        const type = { number: 'number', integer: 'number', date: 'date', datetime: 'datetime-local', url: 'url', email: 'email', phone: 'tel', color: 'color' }[f.type] || 'text';
+        input = h('input', { type, placeholder: f.placeholder || '', value: v == null ? '' : String(v) });
+        if (type === 'number' && f.validation) { if (f.validation.min != null) input.min = f.validation.min; if (f.validation.max != null) input.max = f.validation.max; }
+        read = () => input.value;
+      }
+      if (read) inputs[f.key] = read;
+      const err = h('div', { class: 'hint', style: 'color:var(--bad)' }); errs[f.key] = err;
+      const label = h('label', {}, f.label, f.required && !ro ? h('span', { style: 'color:var(--bad)' }, ' *') : null,
+        f.read_only && editable && !staff ? h('span', { class: 'pill', style: 'margin-left:6px' }, 'set by your accelerator') : null,
+        f.read_only && staff ? h('span', { class: 'pill', style: 'margin-left:6px' }, 'founder’s answer') : null,
+        f.hidden_from_founders ? h('span', { class: 'pill warn', style: 'margin-left:6px' }, 'staff only') : null);
+      return h('div', { class: 'field' }, label, input, f.description ? h('div', { class: 'hint' }, f.description) : null, err);
+    };
+    const bySection = new Map();
+    for (const f of form.fields) { const k = f.section || ''; if (!bySection.has(k)) bySection.set(k, []); bySection.get(k).push(f); }
+    const blocks = [];
+    const known = form.sections.filter((s) => bySection.has(s.key));
+    for (const s of known) blocks.push(h('fieldset', { class: 'form-section' }, h('legend', {}, s.label), s.description ? h('p', { class: 'muted small' }, s.description) : null, bySection.get(s.key).map(fieldEl)));
+    for (const [k, fs] of bySection) if (!known.some((s) => s.key === k)) blocks.push(h('fieldset', { class: 'form-section' }, k ? h('legend', {}, fmt.cap(k.replace(/_/g, ' '))) : null, fs.map(fieldEl)));
+    return {
+      el: h('div', {}, blocks),
+      values() { const out = {}; for (const [k, read] of Object.entries(inputs)) out[k] = read(); return out; },
+      showErrors(map) { for (const [k, el] of Object.entries(errs)) el.textContent = (map && map[k]) || ''; },
+    };
+  }
+
+  function displayValue(f, v) {
+    if (v == null || v === '' || (Array.isArray(v) && !v.length)) return '';
+    const label = (x) => { const o = (f.options || []).find((o2) => o2.value === String(x)); return o ? o.label : String(x); };
+    if (f.type === 'boolean') return v ? 'Yes' : 'No';
+    if (f.type === 'select') return label(v);
+    if (f.type === 'multi_select') return (Array.isArray(v) ? v : [v]).map(label).join(', ');
+    if (f.type === 'date') return fmt.date(v + 'T00:00:00');
+    if (f.type === 'number' || f.type === 'integer') return fmt.num(v);
+    return String(v);
+  }
+
+  async function saveFounderForm(form, rec, renderer, btn, teamId) {
+    btn.disabled = true; renderer.showErrors({});
+    try {
+      const r = await api(`/lp/founders/forms/${encodeURIComponent(form.iid)}`, { method: 'POST', body: { values: renderer.values(), record_id: rec ? rec.id : undefined, team_id: teamId }, quiet: true });
+      toast('Saved.', 'good'); return r.record;
+    } catch (ex) {
+      if (ex.body && ex.body.field_errors) renderer.showErrors(ex.body.field_errors);
+      toast(ex.message, 'bad'); return null;
+    } finally { btn.disabled = false; }
+  }
+
+  async function viewFounderForms(main) {
+    const r = await api('/lp/founders/forms');
+    clear(main);
+    main.append(h('h1', {}, 'Company info'), h('p', { class: 'lede' }, `What ${me.accelerator ? me.accelerator.name : 'your accelerator'} asks every startup to keep up to date. Your whole team can edit it; other startups never see it.`));
+    if (!r.forms.length) { main.append(h('div', { class: 'card empty' }, 'Nothing to fill in yet.')); return; }
+    for (const form of r.forms) main.append(form.mode === 'multiple' ? founderLogCard(form, r.team) : founderSingleCard(form, r.team));
+  }
+
+  function founderSingleCard(form, team) {
+    const rec = form.records[0] || null;
+    const renderer = formRenderer(form, rec ? rec.values : {});
+    const btn = h('button', { type: 'submit' }, 'Save');
+    const stamp = h('span', { class: 'muted small' }, rec ? `Last saved ${fmt.ago(rec.updated_at)}` : 'Not filled in yet');
+    const f = h('form', {}, renderer.el, h('div', { class: 'row between' }, stamp, btn));
+    f.addEventListener('submit', async (e) => { e.preventDefault(); const saved = await saveFounderForm(form, rec, renderer, btn, team.id); if (saved) render(); });
+    return h('div', { class: 'card' }, h('div', { class: 'row between' }, h('h2', {}, form.name), h('span', { class: `pill ${rec ? 'good' : 'warn'}` }, rec ? 'on file' : 'to do')), f);
+  }
+
+  function founderLogCard(form, team) {
+    const cols = form.fields.slice(0, 4);
+    const card = h('div', { class: 'card' }, h('div', { class: 'row between' }, h('h2', {}, form.name), h('button', { onclick: () => founderEntryModal(form, null, team) }, `+ Add ${form.name.toLowerCase()}`)));
+    if (!form.records.length) card.append(h('div', { class: 'empty' }, 'No entries yet.'));
+    else card.append(h('div', { class: 'table-wrap' }, h('table', {},
+      h('thead', {}, h('tr', {}, cols.map((c) => h('th', {}, c.label)), h('th', {}, ''))),
+      h('tbody', {}, form.records.map((rec) => h('tr', { style: 'cursor:pointer', onclick: () => founderEntryModal(form, rec, team) },
+        cols.map((c) => h('td', {}, displayValue(c, rec.values[c.key]) || '—')), h('td', { class: 'muted small' }, fmt.ago(rec.updated_at))))))));
+    return card;
+  }
+
+  function founderEntryModal(form, rec, team) {
+    const renderer = formRenderer(form, rec ? rec.values : {});
+    const btn = h('button', { type: 'submit' }, rec ? 'Save changes' : 'Add');
+    const f = h('form', {}, renderer.el, h('div', { class: 'actions' }, btn));
+    const m = modal(rec ? form.name : `New ${form.name.toLowerCase()}`, f);
+    f.addEventListener('submit', async (e) => { e.preventDefault(); const saved = await saveFounderForm(form, rec, renderer, btn, team.id); if (saved) { m.close(); render(); } });
+  }
+
+  // ---------- accelerator admin: founder forms ----------
+  async function viewAccForms(main) {
+    const [r] = await Promise.all([api('/lp/acc/forms'), accBanner()]);
+    clear(main);
+    main.append(h('h1', {}, 'Founder forms'), h('p', { class: 'lede' }, 'Extra information you collect from every startup: a company profile, monthly updates, anything you need. You design the forms yourself; founders fill them in here, and each startup only ever sees its own answers.'));
+    main.append(h('div', { class: 'card' }, h('h2', {}, '1. Design your forms'),
+      h('p', {}, 'Forms are Custom Objects in your workspace: add sections and fields (text, numbers, dates, dropdowns, yes/no…), mark fields required, read-only for founders (you fill them in), or hidden from founders entirely.'),
+      CFG.ssoConfigured ? h('button', { class: 'ghost', onclick: () => openPortableMind('/app/administration/custom-objects') }, 'Open Custom Objects ↗') : null));
+    main.append(h('div', { class: 'card' }, h('h2', {}, '2. Connect this app'),
+      r.key_ready ? h('p', {}, h('span', { class: 'pill good' }, 'Connected'), ' This app reads your forms and saves founders’ answers with its own key, which can do nothing else.')
+        : h('p', {}, 'Creates a key that can only read your forms and save founders’ answers. It is stored on this app’s server; nobody sees it.'),
+      h('button', { class: r.key_ready ? 'ghost' : '', onclick: async (e) => { e.target.disabled = true; try { await api('/lp/acc/forms/setup', { method: 'POST' }); toast('Forms connected.', 'good'); render(); } finally { e.target.disabled = false; } } }, r.key_ready ? 'Replace key' : 'Connect')));
+    const card = h('div', { class: 'card' }, h('h2', {}, '3. Choose what founders fill in'));
+    if (!r.types.length) card.append(h('p', { class: 'muted' }, 'No custom objects yet — design one first.'));
+    else card.append(h('div', { class: 'table-wrap' }, h('table', {},
+      h('thead', {}, h('tr', {}, ['Form', 'Fields', 'Founders fill in', 'Kind', ''].map((x) => h('th', {}, x)))),
+      h('tbody', {}, r.types.map((t) => {
+        const on = h('input', { type: 'checkbox', checked: t.enabled });
+        const mode = h('select', {}, h('option', { value: 'single' }, 'One per startup (a profile)'), h('option', { value: 'multiple' }, 'Many per startup (a log)'));
+        mode.value = t.mode;
+        const save = async () => { try { await api('/lp/acc/forms/config', { method: 'POST', body: { iid: t.iid, enabled: on.checked, mode: mode.value } }); toast(on.checked ? `${t.name}: founders fill this in.` : `${t.name}: hidden from founders.`, 'good'); } catch (_) { on.checked = !on.checked; } };
+        on.addEventListener('change', save); mode.addEventListener('change', () => { if (on.checked) save(); });
+        return h('tr', {},
+          h('td', {}, h('b', {}, t.name), h('div', { class: 'muted small' }, t.iid)),
+          h('td', {}, `${t.field_count}`, t.founder_field_count !== t.field_count ? h('div', { class: 'muted small' }, `${t.field_count - t.founder_field_count} staff-only`) : null),
+          h('td', {}, h('label', { class: 'check' }, on, 'Yes')), h('td', {}, mode),
+          h('td', {}, h('button', { class: 'ghost', onclick: () => formResponsesDrawer(t) }, 'Answers')));
+      })))));
+    main.append(card);
+  }
+
+  // Every startup's answers for one form. Staff-only and read-only fields are editable here —
+  // that is how the accelerator fills in e.g. a committee score the founder then sees.
+  async function formResponsesDrawer(t) {
+    const r = await api(`/lp/acc/forms/${encodeURIComponent(t.iid)}/responses`);
+    const form = r.form;
+    const cols = form.fields.slice(0, 3);
+    const body = h('div', {}, h('h2', {}, form.name), h('p', { class: 'muted' }, `${r.records.length} answer${r.records.length === 1 ? '' : 's'} from startups.`));
+    if (!r.records.length) body.append(h('div', { class: 'empty' }, 'No startup has filled this in yet.'));
+    else body.append(h('div', { class: 'table-wrap' }, h('table', {},
+      h('thead', {}, h('tr', {}, h('th', {}, 'Startup'), cols.map((c) => h('th', {}, c.label)), h('th', {}, 'Updated'))),
+      h('tbody', {}, r.records.map((rec) => h('tr', { style: 'cursor:pointer', onclick: () => staffRecordModal(form, rec, t) },
+        h('td', {}, h('b', {}, rec.team_name || `Team #${rec.team_id}`)), cols.map((c) => h('td', {}, displayValue(c, rec.values[c.key]) || '—')), h('td', { class: 'muted small' }, fmt.ago(rec.updated_at))))))));
+    drawer(body);
+  }
+
+  function staffRecordModal(form, rec, t) {
+    // Staff edit only the fields founders cannot (read-only / staff-only); the rest is shown as answered.
+    const staffForm = { ...form, fields: form.fields.map((f) => ({ ...f, read_only: !(f.read_only || f.hidden_from_founders) })) };
+    const renderer = formRenderer(staffForm, rec.values, { staff: true });
+    const btn = h('button', { type: 'submit' }, 'Save staff fields');
+    const f = h('form', {}, renderer.el, h('p', { class: 'muted small' }, 'Founders’ answers are theirs to change; you can set the fields marked read-only or staff only.'), h('div', { class: 'actions' }, btn));
+    const m = modal(`${rec.team_name} — ${form.name}`, f);
+    f.addEventListener('submit', async (e) => {
+      e.preventDefault(); btn.disabled = true;
+      try {
+        const vals = renderer.values();
+        for (const fd of staffForm.fields) if (fd.type === 'number' && vals[fd.key] !== undefined) vals[fd.key] = vals[fd.key] === '' ? null : Number(vals[fd.key]);
+        for (const k of Object.keys(vals)) if (vals[k] === '') vals[k] = null;
+        await pmSend('PUT', `/dynamic_models/${rec.id}`, { dynamic_model: { custom_fields: vals } });
+        m.close(); toast('Saved.', 'good'); formResponsesDrawer(t);
       } finally { btn.disabled = false; }
     });
   }

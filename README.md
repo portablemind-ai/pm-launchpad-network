@@ -27,7 +27,7 @@ npm start                # → http://localhost:8080   (Node 20.12+, no npm inst
 |---|---|---|
 | **Network operator**: admin of the Enterprise workspace | the network workspace | create accelerators (with or without activation email), change plans within the contract tier, take metrics snapshots, brand each accelerator and give it white-label sign-on, **transfer purchased tokens** (confirmed, idempotent), publish and version **agent templates** and choose who gets them, **share its own model** with monthly caps, see network-wide spend, delete an accelerator |
 | **Accelerator admin**: admin of one sub-workspace | their accelerator | one-time set-up (founder role, sign-up key, invite code), **review and install** templates with an explicit consent screen, upgrade installs (with a diff when a new version grants more), toggle auto-upgrade, detach, see startups, usage, limits and token balance |
-| **Founder**: member of a startup team | their accelerator | register their startup with the invite code (email confirmed first), see their team, **chat in their startup's private channel**, **chat privately with the assistants (agents) their accelerator picked**, start a published programme (orchestration), read each step's output and accept it or ask for changes, see their files, invite colleagues with a signed join link. Founders never leave this app and never see the platform behind it |
+| **Founder**: member of a startup team | their accelerator | register their startup with the invite code (email confirmed first), see their team, **chat in their startup's private channel**, **fill in the accelerator's own forms (Company info)**, **chat privately with the assistants (agents) their accelerator picked**, start a published programme (orchestration), read each step's output and accept it or ask for changes, see their files, invite colleagues with a signed join link. Founders never leave this app and never see the platform behind it |
 
 Screens:
 
@@ -36,7 +36,7 @@ Screens:
 - **Accelerator admin**: Set-up checklist, Agent catalog, Installed agents, Startups, Usage & plan. A
   banner shows coverage ("Billing is covered by Launchpad Network's agreement"), or the offboarding
   grace deadline.
-- **Founder**: My startup (team + private team chat), Assistants, Programmes (start, follow, review each step), Files.
+- **Founder**: My startup (team + private team chat), Company info (the accelerator's forms), Assistants, Programmes (start, follow, review each step), Files.
 - Sign-in pages theme themselves from the workspace's white-label branding (`/public/branding`) before
   anyone signs in. MFA sign-ins are handled. `402 billing_required` switches the whole app to a
   "locked for billing" screen instead of failing on whatever page was open.
@@ -79,6 +79,7 @@ Browser ──► this server (same origin) ──► PortableMind API
 | `lib/sso.js` | HS256 sign-on assertion (90 s, unique `jti`) and the `/app/*` destination allowlist |
 | `lib/lanes/*.js` | the lanes above |
 | `public/` | the single-page UI: vanilla JS, no build, all rendering via `textContent` |
+| `setup/lp-forms.role.export.json` | the role of the **founder forms key**: view custom object types, view/create/update custom object records — nothing else. Imported and attached by *Founder forms → Connect* |
 | `setup/lp-founder.role.export.json` | the scoped, **external** founder role an accelerator imports: projects, tasks and files owner-or-team scoped, conversations and messages **membership**-scoped, and the platform's own participant shape for orchestration runs. The app-baseline permissions come from the built-in `external_member` |
 
 ### Design decisions, and the guide rule behind each
@@ -133,6 +134,24 @@ Browser ──► this server (same origin) ──► PortableMind API
     signed storage redirect the browser never sees. Founders accept a step
     (`approve_stage`) or send it back with notes (`reject_stage`). The create body is top-level
     (`orchestration_template_id`, `owner_party_id`, `context.feature_request`), not nested.
+- **Founder forms are the accelerator's own custom objects.** Each accelerator designs forms in
+  the platform's admin UI (Administration → Custom Objects): sections, fields (text, textarea,
+  number, date, yes/no, select, multi-select, url, email…), required, `read_only` (founders see it,
+  staff fill it in, e.g. a committee score) and `visible: false` (staff only, never sent to a
+  founder). Types live in the accelerator's workspace, so every accelerator asks its own questions
+  and this app renders whatever it finds. In *Founder forms* the admin picks which types founders
+  fill in and whether each is **one per startup** (a profile) or **many** (a log, e.g. monthly
+  updates), and reads every startup's answers.
+  - Custom object rows have **no owner column**, so a scoped founder role cannot say "my
+    startup's rows". The founder role therefore has **no** custom-object permission. The server
+    holds a separate *forms key* (`lp_forms_writer`) and only ever reads or writes the row tagged
+    `lp-team-<team id>` for the founder's **verified** team.
+  - The server validates every submission against the definition (required, options, numbers,
+    dates, URLs, lengths), accepts only founder-editable fields, and strips hidden fields from
+    everything it returns. The platform also rejects unknown keys and bad option values, but it
+    does **not** enforce `required`.
+  - Staff edit the read-only and hidden fields with their own session, straight through the pipe
+    (`PUT /dynamic_models/:id`).
 - **Colleagues join with a signed link, not a handed-over password.** Before issuing one, the server
   checks the roster (read with the key) for the caller's **session** party id. The link is
   HMAC-signed, names one team and expires after 7 days. A colleague who uses it registers with their

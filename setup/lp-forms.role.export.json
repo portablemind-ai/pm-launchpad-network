@@ -1,0 +1,12 @@
+{
+  "internal_identifier": "lp_forms_writer",
+  "description": "Founder forms key (Launchpad Network): reads the workspace's custom object types and reads/writes their records on behalf of verified founders",
+  "export_version": "1.0",
+  "external": false,
+  "capabilities": [
+    { "action": "view", "resource": "DynamicModelTypes", "scope": null, "internal_identifier": "lp_forms_view_types" },
+    { "action": "view", "resource": "DynamicModels", "scope": null, "internal_identifier": "lp_forms_view_records" },
+    { "action": "create", "resource": "DynamicModels", "scope": null, "internal_identifier": "lp_forms_create_records" },
+    { "action": "update", "resource": "DynamicModels", "scope": null, "internal_identifier": "lp_forms_update_records" }
+  ]
+}

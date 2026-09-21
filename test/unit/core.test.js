@@ -154,3 +154,41 @@ test('sessions: a failed refresh signs the session out instead of looping', asyn
   assert.equal(r.status, 401);
   assert.equal(sessions.size, 0);
 });
+
+const { validateSubmission, publicDefinition } = require('../../lib/lanes/forms');
+
+test('founder forms: only founder-editable fields are accepted, validated and coerced', () => {
+  const type = {
+    internal_identifier: 'startup_profile', description: 'Startup profile',
+    field_definitions: {
+      sections: [{ key: 'company', label: 'Company' }],
+      fields: [
+        { key: 'legal_name', label: 'Name', type: 'text', validation: { required: true } },
+        { key: 'team', label: 'Team', type: 'number', validation: { min: 1 } },
+        { key: 'stage', label: 'Stage', type: 'select', options: [{ value: 'seed', label: 'Seed' }] },
+        { key: 'sector', label: 'Sector', type: 'multi_select', options: [{ value: 'space', label: 'Space' }, { value: 'ai', label: 'AI' }] },
+        { key: 'site', label: 'Site', type: 'url' },
+        { key: 'inc', label: 'Incorporated', type: 'boolean' },
+        { key: 'score', label: 'Score', type: 'select', read_only: true, options: ['1', '5'] },
+        { key: 'notes', label: 'Staff notes', type: 'textarea', visible: false },
+        { key: 'secret', label: 'Role-gated', type: 'text', security_roles: ['tenant_admin'] },
+      ],
+    },
+  };
+  let r = validateSubmission(type, { legal_name: 'Orbit', team: '3', stage: 'seed', sector: ['space', 'space'], site: 'https://orbit.io', inc: 'true', score: '5', notes: 'x', secret: 'y', extra: 1 }, { partial: false });
+  assert.deepEqual(r.errors, {});
+  assert.deepEqual(r.values, { legal_name: 'Orbit', team: 3, stage: 'seed', sector: ['space'], site: 'https://orbit.io', inc: true });
+
+  r = validateSubmission(type, { team: 0, stage: 'unicorn', sector: ['crypto'], site: 'javascript:alert(1)' }, { partial: false });
+  assert.deepEqual(Object.keys(r.errors).sort(), ['legal_name', 'sector', 'site', 'stage', 'team']);
+
+  // An update may leave a required field untouched, but not blank it.
+  assert.deepEqual(validateSubmission(type, { team: 4 }, { partial: true }).errors, {});
+  assert.ok(validateSubmission(type, { legal_name: '' }, { partial: true }).errors.legal_name);
+
+  // Founders are never shown hidden or role-gated fields; read-only ones are shown but locked.
+  const def = publicDefinition(type, { forFounder: true });
+  assert.deepEqual(def.fields.map((f) => f.key), ['legal_name', 'team', 'stage', 'sector', 'site', 'inc', 'score']);
+  assert.equal(def.fields.find((f) => f.key === 'score').read_only, true);
+  assert.equal(publicDefinition(type, { forFounder: false }).fields.length, 9);
+});

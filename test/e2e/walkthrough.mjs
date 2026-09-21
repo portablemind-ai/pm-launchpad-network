@@ -305,6 +305,47 @@ try {
   r = await admin.get('/lp/founders/assistants');
   check('assistant lanes are for founders only', r.status === 403);
 
+  // Founder forms: the accelerator's own custom objects, filled in by founders through this server.
+  r = await admin.post('/api/v1/dynamic_model_types', { dynamic_model_type: { internal_identifier: 'e2e_profile', description: 'E2E profile' } });
+  const typeId = r.body.dynamic_model_type && r.body.dynamic_model_type.id;
+  check('the admin creates a custom object type (as in Administration → Custom Objects)', ok(r) && typeId, r.body);
+  r = await admin.put(`/api/v1/dynamic_model_types/${typeId}`, { dynamic_model_type: { field_definitions: {
+    sections: [{ key: 'main', label: 'Main', display_order: 1 }],
+    fields: [
+      { key: 'name', label: 'Name', type: 'text', section: 'main', display_order: 1, validation: { required: true } },
+      { key: 'stage', label: 'Stage', type: 'select', section: 'main', display_order: 2, options: ['seed', 'series_a'] },
+      { key: 'score', label: 'Score', type: 'number', section: 'main', display_order: 3, read_only: true },
+      { key: 'notes', label: 'Notes', type: 'textarea', section: 'main', display_order: 4, visible: false },
+    ] } } });
+  check('…and designs its fields', ok(r), r.body);
+  r = await f1.get('/lp/founders/forms');
+  check('founders see no forms until the admin chooses some', ok(r) && r.body.forms.length === 0, r.body);
+  r = await admin.post('/lp/acc/forms/setup');
+  check('the admin connects forms (a key that can only read/write custom objects)', ok(r) && r.body.key_id, r.body);
+  r = await admin.post('/lp/acc/forms/config', { iid: 'e2e_profile', enabled: true, mode: 'single' });
+  check('the admin shows the form to founders', ok(r), r.body);
+  r = await f1.get('/lp/founders/forms');
+  const f1form = ok(r) && r.body.forms.find((x) => x.iid === 'e2e_profile');
+  check('the founder gets the form without the hidden field, with the read-only one locked', !!f1form && !f1form.fields.some((x) => x.key === 'notes') && f1form.fields.find((x) => x.key === 'score').read_only === true, r.body);
+  r = await f1.post('/lp/founders/forms/e2e_profile', { values: { stage: 'unicorn' } });
+  check('required and option checks refuse a bad submission', r.status === 422 && r.body.field_errors && r.body.field_errors.name && r.body.field_errors.stage, r.body);
+  r = await f1.post('/lp/founders/forms/e2e_profile', { values: { name: 'Alpha', stage: 'seed', score: 5, notes: 'x' } });
+  const recId = r.body.record && r.body.record.id;
+  check('the founder saves; read-only and hidden fields are ignored', ok(r) && recId && r.body.record.values.score === undefined && r.body.record.values.notes === undefined, r.body);
+  r = await admin.put(`/api/v1/dynamic_models/${recId}`, { dynamic_model: { custom_fields: { score: 4, notes: 'staff only' } } });
+  check('the admin sets the staff fields', ok(r), r.body);
+  r = await f1.get('/lp/founders/forms');
+  const vals = (r.body.forms.find((x) => x.iid === 'e2e_profile').records[0] || {}).values || {};
+  check('the founder sees the score but never the notes', vals.name === 'Alpha' && vals.score === 4 && vals.notes === undefined, vals);
+  r = await f2.get('/lp/founders/forms');
+  check('another startup sees the form empty (not the first startup’s answers)', ok(r) && r.body.forms.find((x) => x.iid === 'e2e_profile').records.length === 0, r.body);
+  r = await f1.get('/api/v1/dynamic_models?limit=5');
+  check('founders cannot reach custom objects through the API pipe', !ok(r) || !(r.body.dynamic_models || []).length, { status: r.status });
+  r = await admin.get('/lp/acc/forms/e2e_profile/responses');
+  check('the admin sees every startup’s answers, including staff fields', ok(r) && r.body.records.some((x) => x.id === recId && x.values.notes === 'staff only'), r.body);
+  r = await f1.post('/lp/acc/forms/config', { iid: 'e2e_profile', enabled: false });
+  check('a founder cannot change which forms are shown', r.status === 403);
+
   // Default configuration: founders must confirm their email before they can sign in.
   {
     const { server: server2 } = createApp(load(E2E_ENV));

@@ -173,3 +173,7 @@ input[type=checkbox], input[type=radio] { width: auto; }
 .md code { background: var(--surface-2); padding: 1px 4px; border-radius: 4px; font-size: 12.5px; }
 .md hr { border: 0; border-top: 1px solid var(--line); margin: 10px 0; }
 details.card summary { cursor: pointer; }
+
+/* Founder forms (custom objects) */
+fieldset.form-section { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 14px 4px; margin: 0 0 14px; }
+fieldset.form-section legend { font-weight: 650; padding: 0 6px; }
