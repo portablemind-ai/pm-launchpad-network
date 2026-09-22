@@ -192,6 +192,9 @@ Browser ──► this server (same origin) ──► PortableMind API
   - Agents are deliberately **not** given the platform's `custom_object_tool`: it reads with the
     agent's own, workspace-wide access, so a founder could ask an assistant for another startup's
     answers or the staff notes.
+- **Startup teams must stay open or closed, never hidden.** The provisioning key has no user, so
+  the platform shows it open and closed teams (and their rosters) but never a hidden team. Teams
+  created at sign-up are open by default; if an admin hides one, its founders' team lookup fails.
 - **Colleagues join with a signed link, not a handed-over password.** Before issuing one, the server
   checks the roster (read with the key) for the caller's **session** party id. The link is
   HMAC-signed, names one team and expires after 7 days. A colleague who uses it registers with their

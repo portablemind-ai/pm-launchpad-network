@@ -339,8 +339,33 @@ POST /sso/exchange   body: { assertion }    assertion = HS256 JWT signed with TH
   {llm_conversation_member:{llm_conversation_id, party_id, active:true}}`. Message body is an OBJECT:
   `POST /llm_messages {llm_message:{llm_conversation_id, message:{role:"user", content:"…"}}}`.
   Read: `GET /llm_conversations/:id/llm_messages`.
-- **Agents**: end users use an agent by CHATTING with it in a conversation they are a member of
-  (an `ai` conversation for a private thread). No AI Studio, no extra role.
+- **Keep the platform behind your app.** Sign-on (7.4) is for your STAFF. End users get no button, no
+  "powered by", and your server refuses the sign-on lane for their role. Everything below works via the API.
+- **Agents**: one private `ai-agent` conversation per end user per agent, created AS the user, name
+  `[A-Za-z0-9_-]{1,128}`, unique per type (build it: `<agent>_founder-<party_id>`), the agent added as a
+  member. Wake it with an `@<AgentName>` prefix your SERVER adds (strip it on display); post with
+  `POST /llm_conversations/:id/chat {message}`. Context for the agent = the conversation's
+  `system_prompt` (set on create; refresh with `PUT … {llm_conversation:{system_prompt}}`, owner-scoped
+  `update LlmConversations`) — platform v2026.73.0+. Never put context inside the user's message; never
+  give agents a tool that reads end users' records directly. Agent replies have `role:"user"` — detect
+  them by `llm_agent`. Message lists are oldest-first.
+- **Runs (end-user side)**: `POST /orchestration_executions` with TOP-LEVEL fields
+  `{orchestration_template_id, name, owner_party_id: <team party>, context: {feature_request, …}}` — a
+  nested object is ignored. Extra `context` keys reach every step; tell the steps in the template's stage
+  prompts. Read `GET /orchestration_executions/:id` (stages, artifacts) or `/status`. Artifact content:
+  `GET …/artifacts/:aid/download` = 302 to a signed URL — fetch server-side, never give it to the
+  browser. `approve_stage {notes}` / `reject_stage {reason}` (reason required). Templates must be
+  published: `PATCH /orchestration_templates/:id/publish`.
+- **Custom objects (your own forms/data)**: types are defined per workspace in Administration →
+  Custom Objects (`GET /dynamic_model_types` → `field_definitions.fields/sections`; honour `read_only`
+  and `visible:false`). End users get NO custom-object permission (rows have no owner column). Your
+  server uses a key whose role is exactly `view DynamicModelTypes`, `view/create/update DynamicModels`,
+  `view/create DynamicModelPartyRoles`, `view RoleTypes` (+ `destroy DynamicModels` for rollback only).
+  Own each row with a `DynamicModelPartyRole` (team party, role type `owner`); find a team's rows via
+  its owner links then `search_query {"where":{"id":{"in":[…]}}}`. The platform rejects unknown keys and
+  bad options but NOT a missing `required` — validate on your server.
+- **Customer teams must be open or closed, never hidden**: a hidden team is invisible to API keys (and
+  to non-members) on every API; team export needs a workspace admin or the team lead.
 - **Files**: `create LlmFiles` + `view` scoped `{"where":{"owner_party_id":{"in":"current_party_and_team_ids"}}}`.
 - **Projects / tasks / runs**: same owner-or-team scope + create. Runs mirror the platform's
   participant shape: `create OrchestrationExecutions`, owner-or-team `view`, `approve_stage`,
@@ -449,6 +474,11 @@ Browser → network server (same origin) → PortableMind API
 - Do not leave a conversation/file read unscoped on an external role.
 - Do not send a message body as a string, or a conversation type as a number.
 - Do not use `skip_activation_needed_email` on an internet-facing sign-up.
+- Do not give end users a way into the PortableMind app if your product hides the platform.
+- Do not hide agent context in a user's message; do not nest the run-start body.
+- Do not grant end users custom-object permissions; do not trust the platform to enforce `required`.
+- Do not send a plain list in `search_query` (`{"id":[1,2]}`) — use `{"in":[…]}`.
+- Do not make customer teams hidden.
 
 ## Settled — do not re-open
 
